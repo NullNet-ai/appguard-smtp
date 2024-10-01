@@ -1,0 +1,22 @@
+{
+  "name": "smtp-server-1",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "start:client": "ts-node src/client.ts"
+  },
+  "author": "bon",
+  "license": "ISC",
+  "dependencies": {
+    "@nullnet/app-guard-smtp": "file:../app-guard-smtp",
+    "nodemailer": "^6.9.15"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/smtp-server": "^3.5.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3"
+  }
+}
