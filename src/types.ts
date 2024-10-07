@@ -8,6 +8,7 @@ export type TCPSession = {
   remotePort: number;
   transmissionType: string;
   tcpInfo?: AppGuardTcpInfo;
+  reqId?: number;
 };
 
 export type CallbackFunction = (error?: null | Error, data?: any) => void;

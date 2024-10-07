@@ -190,6 +190,7 @@ export class SMTPServer {
     })
 
     session.tcpInfo = handleTCPConnectionResponse.tcpInfo
+    session.reqId = handleTCPConnectionResponse.reqId
 
     // Callback with error to reject connection
     // callback without error to accept connection
@@ -247,6 +248,7 @@ export class SMTPServer {
     // @ts-ignore
     const handleSMTPResponseResponse = await this.appguard.handleSmtpResponse({
       code: undefined,
+      reqId: session.reqId,
       tcpInfo: session.tcpInfo
     })
   }
