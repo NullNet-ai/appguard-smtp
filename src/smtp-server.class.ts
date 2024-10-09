@@ -1,7 +1,7 @@
-import { SMTPServer as NodeSMTPServer } from 'smtp-server';
-import { simpleParser } from 'mailparser';
-import { CallbackFunction, SMTPAuth, TCPSession } from './types';
-import { Stream } from 'stream';
+import {SMTPServer as NodeSMTPServer} from 'smtp-server';
+import {simpleParser} from 'mailparser';
+import {CallbackFunction, SMTPAuth, TCPSession} from './types';
+import {Stream} from 'stream';
 import {AppGuardGenericVal} from "./proto/appguard/AppGuardGenericVal";
 import {AppGuardClient} from "./proto/appguard/AppGuard";
 import path from "path";
@@ -13,6 +13,7 @@ import {AppGuardTcpResponse__Output} from "./proto/appguard/AppGuardTcpResponse"
 import {AppGuardSmtpRequest} from "./proto/appguard/AppGuardSmtpRequest";
 import {AppGuardResponse__Output} from "./proto/appguard/AppGuardResponse";
 import {AppGuardSmtpResponse} from "./proto/appguard/AppGuardSmtpResponse";
+import {FirewallPolicy} from "./proto/appguard/FirewallPolicy";
 
 const PROTO_FILE = __dirname + '/../appguard-protobuf/appguard.proto'
 const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE))
@@ -160,8 +161,7 @@ export class SMTPServer {
     const smtp_packet = await simpleParser(packet);
 
     console.log(
-      `Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`,
-      smtp_packet
+      `Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`
     );
 
     // @ts-ignore
@@ -172,7 +172,14 @@ export class SMTPServer {
       tcpInfo: session.tcpInfo
     })
 
-    callback();
+    if (handleSMTPRequestResponse.policy === FirewallPolicy.DENY) {
+      let err = new Error('Email denied by AppGuard');
+      // @ts-ignore
+      err.responseCode = 541;
+      callback(err);
+    } else {
+      callback();
+    }
   }
 
   //   Invoked when a new connection is opened
