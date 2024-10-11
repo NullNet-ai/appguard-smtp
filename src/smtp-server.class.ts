@@ -1,7 +1,7 @@
-import {SMTPServer as NodeSMTPServer} from 'smtp-server';
-import {simpleParser} from 'mailparser';
-import {CallbackFunction, SMTPAuth, TCPSession} from './types';
-import {Stream} from 'stream';
+import { SMTPServer as NodeSMTPServer } from 'smtp-server';
+import { simpleParser } from 'mailparser';
+import { CallbackFunction, SMTPAuth, TCPSession } from './types';
+import { Stream } from 'stream';
 import {AppGuardGenericVal} from "./proto/appguard/AppGuardGenericVal";
 import {AppGuardClient} from "./proto/appguard/AppGuard";
 import path from "path";
@@ -160,9 +160,7 @@ export class SMTPServer {
   ) {
     const smtp_packet = await simpleParser(packet);
 
-    console.log(
-      `Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`
-    );
+    console.log(`Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
     const handleSMTPRequestResponse = await this.appguard.handleSmtpRequest({
@@ -184,9 +182,7 @@ export class SMTPServer {
 
   //   Invoked when a new connection is opened
   async onConnect(session: TCPSession, callback: CallbackFunction) {
-    console.log(
-      `Connection opened from - ${session.remoteAddress}:${session.remotePort}`
-    );
+    console.log("New TCP session from hostname:", session.hostNameAppearsAs);
 
     const handleTCPConnectionResponse = await this.appguard.handleTcpConnection({
       sourceIp: session.remoteAddress,
@@ -244,13 +240,12 @@ export class SMTPServer {
     callback: CallbackFunction
   ) {
     const raw_smtp = await this.waitForData(stream);
-    console.log(`Received email from ${session.remoteAddress}`);
     await this.onSMTPPacket(raw_smtp.toString(), session, callback);
   }
 
   // Invoked when connection is closed for any reason (timeout, error, etc)
   async onClose(session: TCPSession) {
-    console.log(`Connection closed - ${session.remoteAddress}`);
+    console.log(`Connection closed - ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
     const handleSMTPResponseResponse = await this.appguard.handleSmtpResponse({

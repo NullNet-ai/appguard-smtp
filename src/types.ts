@@ -7,6 +7,7 @@ export type TCPSession = {
   remoteAddress: string;
   remotePort: number;
   transmissionType: string;
+  hostNameAppearsAs: string;
   tcpInfo?: AppGuardTcpInfo;
   reqId?: number;
 };

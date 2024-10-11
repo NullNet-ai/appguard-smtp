@@ -6,6 +6,7 @@ const transporter = nodemailer.createTransport({
   host: HOST,
   port: PORT,
   secure: false, // Use `true` for port 465, `false` for all other ports
+  name: "sampleClientHostname",
 });
 
 async function sendEmail() {
