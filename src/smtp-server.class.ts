@@ -13,6 +13,7 @@ import {AppGuardTcpResponse__Output} from "./proto/appguard/AppGuardTcpResponse"
 import {AppGuardSmtpRequest} from "./proto/appguard/AppGuardSmtpRequest";
 import {AppGuardResponse__Output} from "./proto/appguard/AppGuardResponse";
 import {AppGuardSmtpResponse} from "./proto/appguard/AppGuardSmtpResponse";
+import {FirewallPolicy} from "./proto/appguard/FirewallPolicy";
 
 const PROTO_FILE = __dirname + '/../appguard-protobuf/appguard.proto'
 const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE))
@@ -159,10 +160,7 @@ export class SMTPServer {
   ) {
     const smtp_packet = await simpleParser(packet);
 
-    console.log(
-      `Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`,
-      smtp_packet
-    );
+    console.log(`Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
     const handleSMTPRequestResponse = await this.appguard.handleSmtpRequest({
@@ -172,14 +170,19 @@ export class SMTPServer {
       tcpInfo: session.tcpInfo
     })
 
-    callback();
+    if (handleSMTPRequestResponse.policy === FirewallPolicy.DENY) {
+      let err = new Error('Email denied by AppGuard');
+      // @ts-ignore
+      err.responseCode = 541;
+      callback(err);
+    } else {
+      callback();
+    }
   }
 
   //   Invoked when a new connection is opened
   async onConnect(session: TCPSession, callback: CallbackFunction) {
-    console.log(
-      `Connection opened from - ${session.remoteAddress}:${session.remotePort}`
-    );
+    console.log("New TCP session from hostname:", session.hostNameAppearsAs);
 
     const handleTCPConnectionResponse = await this.appguard.handleTcpConnection({
       sourceIp: session.remoteAddress,
@@ -190,7 +193,6 @@ export class SMTPServer {
     })
 
     session.tcpInfo = handleTCPConnectionResponse.tcpInfo
-    session.reqId = handleTCPConnectionResponse.reqId
 
     // Callback with error to reject connection
     // callback without error to accept connection
@@ -237,18 +239,16 @@ export class SMTPServer {
     callback: CallbackFunction
   ) {
     const raw_smtp = await this.waitForData(stream);
-    console.log(`Received email from ${session.remoteAddress}`);
     await this.onSMTPPacket(raw_smtp.toString(), session, callback);
   }
 
   // Invoked when connection is closed for any reason (timeout, error, etc)
   async onClose(session: TCPSession) {
-    console.log(`Connection closed - ${session.remoteAddress}`);
+    console.log(`Connection closed - ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
     const handleSMTPResponseResponse = await this.appguard.handleSmtpResponse({
       code: undefined,
-      reqId: session.reqId,
       tcpInfo: session.tcpInfo
     })
   }

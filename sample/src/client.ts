@@ -6,6 +6,7 @@ const transporter = nodemailer.createTransport({
   host: HOST,
   port: PORT,
   secure: false, // Use `true` for port 465, `false` for all other ports
+  name: "sampleClientHostname",
 });
 
 async function sendEmail() {
@@ -18,7 +19,7 @@ async function sendEmail() {
     html: '<b>Hello world?</b>', // html body
   });
 
-  console.log('Message sent: %s', info.messageId);
+  console.log('Message sent:', info);
 }
 
 sendEmail().catch(console.error);
