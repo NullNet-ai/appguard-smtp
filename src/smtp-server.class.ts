@@ -19,6 +19,13 @@ const PROTO_FILE = __dirname + '/../appguard-protobuf/appguard.proto'
 const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE))
 const grpcObj = (grpc.loadPackageDefinition(packageDef) as unknown) as ProtoGrpcType
 
+export type AppGuardConfig = {
+  host: string;
+  port: number;
+  timeoutMsec?: number;
+  defaultPolicy?: FirewallPolicy;
+};
+
 class AppGuardService {
   private host: string
   private port: number
@@ -115,8 +122,10 @@ export class SMTPServer {
   private server: NodeSMTPServer;
   private port: number;
   private appguard: AppGuardService;
+  private timeoutMsec?: number;
+  private defaultPolicy?: FirewallPolicy;
 
-  constructor(port: number, appguard_host: string, appguard_port: number) {
+  constructor(port: number, config: AppGuardConfig) {
     this.port = port;
     // @ts-ignore
     this.server = new NodeSMTPServer({
@@ -135,7 +144,22 @@ export class SMTPServer {
       onConnect: this.onConnect.bind(this),
       onClose: this.onClose.bind(this),
     });
-    this.appguard = new AppGuardService(appguard_host, appguard_port)
+    this.appguard = new AppGuardService(config.host, config.port);
+    this.timeoutMsec = config.timeoutMsec;
+    this.defaultPolicy = config.defaultPolicy;
+  }
+
+  private waitWhileTimeout = (promise: Promise<AppGuardResponse__Output>) => {
+    if (this.timeoutMsec !== undefined && this.defaultPolicy !== undefined) {
+      let timeoutPromise: Promise<AppGuardResponse__Output> = new Promise((resolve, _reject) => {
+        setTimeout(resolve, this.timeoutMsec, {
+          policy: this.defaultPolicy
+        })
+      });
+      return Promise.race([promise, timeoutPromise])
+    } else {
+      return promise
+    }
   }
 
   private waitForData(stream: Stream): Promise<Buffer> {
@@ -163,12 +187,12 @@ export class SMTPServer {
     console.log(`Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
-    const handleSMTPRequestResponse = await this.appguard.handleSmtpRequest({
+    const handleSMTPRequestResponse = await this.waitWhileTimeout(this.appguard.handleSmtpRequest({
       // @ts-ignore
       headers: headerLinesReducer(smtp_packet['headerLines']),
       body: smtp_packet['text'],
       tcpInfo: session.tcpInfo
-    })
+    }))
 
     if (handleSMTPRequestResponse.policy === FirewallPolicy.DENY) {
       let err = new Error('Email denied by AppGuard');
@@ -247,10 +271,10 @@ export class SMTPServer {
     console.log(`Connection closed - ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
-    const handleSMTPResponseResponse = await this.appguard.handleSmtpResponse({
+    const handleSMTPResponseResponse = await this.waitWhileTimeout(this.appguard.handleSmtpResponse({
       code: undefined,
       tcpInfo: session.tcpInfo
-    })
+    }))
   }
 
   async onModuleInit() {
