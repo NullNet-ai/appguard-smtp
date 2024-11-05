@@ -9,7 +9,6 @@ export type TCPSession = {
   transmissionType: string;
   hostNameAppearsAs: string;
   tcpInfo?: AppGuardTcpInfo;
-  reqId?: number;
 };
 
 export type CallbackFunction = (error?: null | Error, data?: any) => void;
