@@ -22,8 +22,9 @@ const grpcObj = (grpc.loadPackageDefinition(packageDef) as unknown) as ProtoGrpc
 export type AppGuardConfig = {
   host: string;
   port: number;
-  timeoutMsec?: number;
   defaultPolicy?: FirewallPolicy;
+  firewallTimeout?: number;
+  connectionTimeout?: number;
 };
 
 class AppGuardService {
@@ -122,8 +123,9 @@ export class SMTPServer {
   private server: NodeSMTPServer;
   private port: number;
   private appguard: AppGuardService;
-  private timeoutMsec?: number;
   private defaultPolicy?: FirewallPolicy;
+  private firewallTimeout?: number;
+  private connectionTimeout?: number;
 
   constructor(port: number, config: AppGuardConfig) {
     this.port = port;
@@ -145,15 +147,32 @@ export class SMTPServer {
       onClose: this.onClose.bind(this),
     });
     this.appguard = new AppGuardService(config.host, config.port);
-    this.timeoutMsec = config.timeoutMsec;
     this.defaultPolicy = config.defaultPolicy;
+    this.firewallTimeout = config.firewallTimeout;
+    this.connectionTimeout = config.connectionTimeout;
   }
 
-  private waitWhileTimeout = (promise: Promise<AppGuardResponse__Output>) => {
-    if (this.timeoutMsec !== undefined && this.defaultPolicy !== undefined) {
+  private firewallPromise = (promise: Promise<AppGuardResponse__Output>): Promise<AppGuardResponse__Output> => {
+    if (this.firewallTimeout !== undefined && this.defaultPolicy !== undefined) {
       let timeoutPromise: Promise<AppGuardResponse__Output> = new Promise((resolve, _reject) => {
-        setTimeout(resolve, this.timeoutMsec, {
+        setTimeout(resolve, this.firewallTimeout, {
           policy: this.defaultPolicy
+        })
+      });
+      return Promise.race([promise, timeoutPromise])
+    } else {
+      return promise
+    }
+  }
+
+  private connectionPromise = (connection: AppGuardTcpConnection): Promise<AppGuardTcpResponse__Output> => {
+    let promise = this.appguard.handleTcpConnection(connection);
+    if (this.connectionTimeout !== undefined) {
+      let timeoutPromise: Promise<AppGuardTcpResponse__Output> = new Promise((resolve, _reject) => {
+        setTimeout(resolve, this.connectionTimeout, {
+          tcpInfo: {
+            connection: connection,
+          }
         })
       });
       return Promise.race([promise, timeoutPromise])
@@ -187,7 +206,7 @@ export class SMTPServer {
     console.log(`Captured Raw SMTP Packet from ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
-    const handleSMTPRequestResponse = await this.waitWhileTimeout(this.appguard.handleSmtpRequest({
+    const handleSMTPRequestResponse = await this.firewallPromise(this.appguard.handleSmtpRequest({
       // @ts-ignore
       headers: headerLinesReducer(smtp_packet['headerLines']),
       body: smtp_packet['text'],
@@ -208,7 +227,7 @@ export class SMTPServer {
   async onConnect(session: TCPSession, callback: CallbackFunction) {
     console.log("New TCP session from hostname:", session.hostNameAppearsAs);
 
-    const handleTCPConnectionResponse = await this.appguard.handleTcpConnection({
+    const handleTCPConnectionResponse = await this.connectionPromise({
       sourceIp: session.remoteAddress,
       sourcePort: session.remotePort,
       destinationIp: session.localAddress,
@@ -271,7 +290,7 @@ export class SMTPServer {
     console.log(`Connection closed - ${session.remoteAddress}:${session.remotePort}`);
 
     // @ts-ignore
-    const handleSMTPResponseResponse = await this.waitWhileTimeout(this.appguard.handleSmtpResponse({
+    const handleSMTPResponseResponse = await this.firewallPromise(this.appguard.handleSmtpResponse({
       code: undefined,
       tcpInfo: session.tcpInfo
     }))
