@@ -1,3 +1,3 @@
 # AppGuard-smtp
 
-AppGuard client for SMTP.
+AppGuard client for SMTP. (WIP)
