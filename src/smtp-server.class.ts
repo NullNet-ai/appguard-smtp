@@ -2,7 +2,6 @@ import { SMTPServer as NodeSMTPServer } from 'smtp-server';
 import { simpleParser } from 'mailparser';
 import { CallbackFunction, SMTPAuth, TCPSession } from './types';
 import { Stream } from 'stream';
-import {AppGuardGenericVal} from "./proto/appguard/AppGuardGenericVal";
 import {AppGuardClient} from "./proto/appguard/AppGuard";
 import path from "path";
 import {ProtoGrpcType} from "./proto/appguard";
@@ -14,20 +13,26 @@ import {AppGuardSmtpRequest} from "./proto/appguard/AppGuardSmtpRequest";
 import {AppGuardResponse__Output} from "./proto/appguard/AppGuardResponse";
 import {AppGuardSmtpResponse} from "./proto/appguard/AppGuardSmtpResponse";
 import {FirewallPolicy} from "./proto/appguard/FirewallPolicy";
+import {HeartbeatRequest} from "./proto/appguard/HeartbeatRequest";
+import {HeartbeatResponse__Output} from "./proto/appguard/HeartbeatResponse";
+import {DeviceStatus} from "./proto/appguard/DeviceStatus";
+import {AppGuardFirewall, AppGuardFirewall__Output} from "./proto/appguard/AppGuardFirewall";
+import {AuthHandler, TOKEN_FILE} from "./auth";
 
-const PROTO_FILE = __dirname + '/../appguard-protobuf/appguard.proto'
+const PROTO_FILE = __dirname + '/../proto/appguard.proto'
 const packageDef = protoLoader.loadSync(path.resolve(__dirname, PROTO_FILE))
 const grpcObj = (grpc.loadPackageDefinition(packageDef) as unknown) as ProtoGrpcType
 
 export type AppGuardConfig = {
   host: string;
   port: number;
-  defaultPolicy?: FirewallPolicy;
-  firewallTimeout?: number;
-  connectionTimeout?: number;
+  tls: boolean;
+  timeout?: number;
+  defaultPolicy: FirewallPolicy;
+  firewall: string;
 };
 
-class AppGuardService {
+export class AppGuardService {
   private host: string
   private port: number
   private client: AppGuardClient
@@ -84,27 +89,41 @@ class AppGuardService {
       })
     })
   }
-}
-
-const headerLinesReducer = (array: Array<Record<string, string>>):  Record<string, AppGuardGenericVal> => {
-  let ret_val: Record<string, string> = {}
-  array.map( obj => {
-    const key = obj['key']
-    let value = obj['line']
-    value = value.substring(key.length + 2).trim()
-    return {[key]: value}
-  }).forEach( obj => {
-    ret_val = {...ret_val, ...obj}
-  })
-  return Object.entries(ret_val).reduce((acc,  current:[string, string]) => {
-    const [key, value] = current
-    return {
-      ...acc,
-      [key]: {
-        stringVal: value
+  heartbeat(req: HeartbeatRequest) {
+    let call = this.client.heartbeat(req);
+    call.on('data', function(heartbeat: HeartbeatResponse__Output) {
+      // handle the heartbeat response
+      console.log("Received heartbeat from server");
+      // write token to file
+      const fs = require('fs');
+      fs.writeFileSync(TOKEN_FILE, heartbeat.token, {flag: 'w'});
+      let status = heartbeat.status;
+      if (status == DeviceStatus.ARCHIVED || status == DeviceStatus.DELETED) {
+        // terminate current process
+        console.log("Device is archived or deleted, terminating process");
+        process.exit(0);
       }
-    }
-  }, {} as Record<string, AppGuardGenericVal> )
+    });
+    call.on('error', (_e) => {
+      // An error has occurred and the stream has been closed.
+      // sleep for 10 seconds and try again
+      console.log("Error in heartbeat, retrying in 10 seconds");
+      setTimeout(() => {
+        this.heartbeat(req);
+      }, 10000);
+    });
+  }
+  async updateFirewall(req: AppGuardFirewall): Promise<AppGuardFirewall__Output>{
+    return new Promise((resolve, reject) => {
+      this.client.updateFirewall(req, (err, res) => {
+        if(err){
+          reject(err)
+        } else {
+          resolve(res as AppGuardFirewall__Output)
+        }
+      })
+    })
+  }
 }
 
 /*
@@ -124,8 +143,9 @@ export class SMTPServer {
   private port: number;
   private appguard: AppGuardService;
   private defaultPolicy?: FirewallPolicy;
-  private firewallTimeout?: number;
-  private connectionTimeout?: number;
+  private timeout?: number;
+  private auth: AuthHandler;
+  private firewall: string;
 
   constructor(port: number, config: AppGuardConfig) {
     this.port = port;
@@ -147,15 +167,17 @@ export class SMTPServer {
       onClose: this.onClose.bind(this),
     });
     this.appguard = new AppGuardService(config.host, config.port);
+    this.auth = new AuthHandler(this.appguard);
+
     this.defaultPolicy = config.defaultPolicy;
-    this.firewallTimeout = config.firewallTimeout;
-    this.connectionTimeout = config.connectionTimeout;
+    this.timeout = config.timeout;
+    this.firewall = config.firewall;
   }
 
   private firewallPromise = (promise: Promise<AppGuardResponse__Output>): Promise<AppGuardResponse__Output> => {
-    if (this.firewallTimeout !== undefined && this.defaultPolicy !== undefined) {
+    if (this.timeout !== undefined && this.defaultPolicy !== undefined) {
       let timeoutPromise: Promise<AppGuardResponse__Output> = new Promise((resolve, _reject) => {
-        setTimeout(resolve, this.firewallTimeout, {
+        setTimeout(resolve, this.timeout, {
           policy: this.defaultPolicy
         })
       });
@@ -167,9 +189,9 @@ export class SMTPServer {
 
   private connectionPromise = (connection: AppGuardTcpConnection): Promise<AppGuardTcpResponse__Output> => {
     let promise = this.appguard.handleTcpConnection(connection);
-    if (this.connectionTimeout !== undefined) {
+    if (this.timeout !== undefined) {
       let timeoutPromise: Promise<AppGuardTcpResponse__Output> = new Promise((resolve, _reject) => {
-        setTimeout(resolve, this.connectionTimeout, {
+        setTimeout(resolve, this.timeout, {
           tcpInfo: {
             connection: connection,
           }
@@ -208,9 +230,10 @@ export class SMTPServer {
     // @ts-ignore
     const handleSMTPRequestResponse = await this.firewallPromise(this.appguard.handleSmtpRequest({
       // @ts-ignore
-      headers: headerLinesReducer(smtp_packet['headerLines']),
+      headers: smtp_packet['headerLines'],
       body: smtp_packet['text'],
-      tcpInfo: session.tcpInfo
+      tcpInfo: session.tcpInfo,
+      token: this.auth.token()
     }))
 
     if (handleSMTPRequestResponse.policy === FirewallPolicy.DENY) {
@@ -232,7 +255,8 @@ export class SMTPServer {
       sourcePort: session.remotePort,
       destinationIp: session.localAddress,
       destinationPort: session.localPort,
-      protocol: session.transmissionType
+      protocol: session.transmissionType,
+      token: this.auth.token()
     })
 
     session.tcpInfo = handleTCPConnectionResponse.tcpInfo
@@ -292,13 +316,21 @@ export class SMTPServer {
     // @ts-ignore
     const handleSMTPResponseResponse = await this.firewallPromise(this.appguard.handleSmtpResponse({
       code: undefined,
-      tcpInfo: session.tcpInfo
+      tcpInfo: session.tcpInfo,
+      token: this.auth.token()
     }))
   }
 
   async onModuleInit() {
     this.server.listen(this.port);
     await this.appguard.onModuleInit();
+    await this.auth.init();
+    await this.appguard.updateFirewall({
+      // @ts-ignore
+      token: this.auth.token(),
+      // @ts-ignore
+      firewall: this.firewall
+    })
 
     process.on('uncaughtException', (e) => {
       console.log('uncaughtException\n\r', e);
