@@ -2,7 +2,6 @@ import { SMTPServer as NodeSMTPServer } from 'smtp-server';
 import { simpleParser } from 'mailparser';
 import { CallbackFunction, SMTPAuth, TCPSession } from './types';
 import { Stream } from 'stream';
-import {AppGuardGenericVal} from "./proto/appguard/AppGuardGenericVal";
 import {AppGuardClient} from "./proto/appguard/AppGuard";
 import path from "path";
 import {ProtoGrpcType} from "./proto/appguard";
@@ -84,27 +83,6 @@ class AppGuardService {
       })
     })
   }
-}
-
-const headerLinesReducer = (array: Array<Record<string, string>>):  Record<string, AppGuardGenericVal> => {
-  let ret_val: Record<string, string> = {}
-  array.map( obj => {
-    const key = obj['key']
-    let value = obj['line']
-    value = value.substring(key.length + 2).trim()
-    return {[key]: value}
-  }).forEach( obj => {
-    ret_val = {...ret_val, ...obj}
-  })
-  return Object.entries(ret_val).reduce((acc,  current:[string, string]) => {
-    const [key, value] = current
-    return {
-      ...acc,
-      [key]: {
-        stringVal: value
-      }
-    }
-  }, {} as Record<string, AppGuardGenericVal> )
 }
 
 /*
@@ -208,7 +186,7 @@ export class SMTPServer {
     // @ts-ignore
     const handleSMTPRequestResponse = await this.firewallPromise(this.appguard.handleSmtpRequest({
       // @ts-ignore
-      headers: headerLinesReducer(smtp_packet['headerLines']),
+      headers: smtp_packet['headerLines'],
       body: smtp_packet['text'],
       tcpInfo: session.tcpInfo
     }))
