@@ -6,9 +6,10 @@ async function bootstrap() {
   const appGuardConfig: AppGuardConfig = {
     host: 'localhost',
     port: 50051,
+    tls: false,
     defaultPolicy: FirewallPolicy.ALLOW,
-    firewallTimeout: 1_000,
-    connectionTimeout: 2_000,
+    timeout: 1_000,
+    firewall: "[]",
   }
 
   const server = new SMTPServer(+PORT, appGuardConfig);
