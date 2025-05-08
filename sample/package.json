@@ -8,7 +8,7 @@
     "start:client": "ts-node src/client.ts"
   },
   "author": "bon",
-  "license": "ISC",
+  "license": "AGPL-3.0-only",
   "dependencies": {
     "@nullnet/app-guard-smtp": "file:../",
     "nodemailer": "^6.9.15"
